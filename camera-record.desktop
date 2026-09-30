@@ -1,11 +1,11 @@
 [Desktop Entry]
 Type=Application
-Name=相机录制
-Name[en]=Camera Record
-Comment=摄像头无损录制（MJPEG 直通）+ 实时预览
+Name=相机录制（打开即开始录制，按 q 结束）
+Name[en]=Camera Record (starts recording immediately, press q to stop)
+Comment=打开就开始录像并显示预览；按 q 或关掉预览窗口（或终端里 Ctrl-C）结束并保存到 ~/Videos/Camera
 Exec=@EXEC@
 Icon=camera-web
-Terminal=false
+Terminal=true
 Categories=AudioVideo;Video;Recorder;
 Keywords=camera;webcam;video;record;摄像头;录制;
 StartupNotify=true

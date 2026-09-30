@@ -52,10 +52,10 @@ esac
 out_dir="${OUT_DIR:-$HOME/Videos/Camera}"
 mkdir -p "$out_dir"
 out="$out_dir/$(date +%F_%H-%M-%S).mkv"
-title="相机预览 — 按 q 或关窗口结束录制"
-# xv 后端只用 XStoreName 设 WM_NAME(STRING=ISO-8859-1)，中文会被窗口管理器按 Latin-1 解释而乱码；
-# 所以 xv 用纯 ASCII 标题（sdl 会正确设 _NET_WM_NAME，中文没问题）。
-title_ascii="Camera Preview - press q or close window to stop"
+title="Camera Preview - press q or close window to stop"
+# 标题保持纯 ASCII：ffmpeg 的 sdl 和 xv 输出设备都只用 XStoreName 设 WM_NAME
+# (类型 STRING = ISO-8859-1)，且**都不设** _NET_WM_NAME(UTF8_STRING)——xprop 实测确认。
+# 中文标题会被窗口管理器按 Latin-1 逐字节解释成乱码（“相机” → ç›¸æœº）。
 
 have_mic=0
 if [ "${NO_AUDIO:-0}" != 1 ] && pactl get-default-source >/dev/null 2>&1; then have_mic=1; fi
@@ -69,7 +69,7 @@ rec() {
   }
   case "$2" in
     none) : ;;
-    xv)   p=(-map 0:v -vf format=yuv420p -f xv -window_title "$title_ascii" "${DISPLAY:-:0}") ;;
+    xv)   p=(-map 0:v -vf format=yuv420p -f xv -window_title "$title" "${DISPLAY:-:0}") ;;
     *)    p=(-map 0:v -vf format=yuv420p -f sdl "$title") ;;
   esac
   ffmpeg -hide_banner -loglevel warning -stats \
@@ -80,8 +80,15 @@ rec() {
 try() {
   rec "$1" "$2"
   local rc=$?
-  if [ $rc -eq 0 ]; then
-    echo "已保存: $out"
+  [ $rc -eq 0 ] && { echo "已保存: $out"; exit 0; }
+  # 按 q / 关预览窗 / 终端里 Ctrl-C 时，ffmpeg 会带着退出码 255 结束，
+  # 但 MKV 已经正常收尾（实测：SIGINT 后 ffprobe 能读出完整时长）。
+  # 这种“已经真的录到内容”的情况算成功，否则脚本会删掉文件并换后端重试，
+  # 结果就是用户一按停止它就重新拉起 ffmpeg、摄像头一直显示被占用。
+  local d
+  d=$(ffprobe -v error -show_entries format=duration -of csv=p=0 "$out" 2>/dev/null)
+  if [ -s "$out" ] && awk -v d="${d:-0}" 'BEGIN{exit !(d+0>=1)}'; then
+    echo "已保存: $out（${d}s）"
     exit 0
   fi
   rm -f "$out"

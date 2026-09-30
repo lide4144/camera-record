@@ -56,7 +56,8 @@ camera-record --selftest
 ```
 
 `install.sh` 只做两件事：把本目录的 `camera-record` 软链到 `~/.local/bin/`，并按本机路径生成一个
-`~/.local/share/applications/camera-record.desktop`（菜单里显示为「相机录制」）。删除软链即卸载。
+`~/.local/share/applications/camera-record.desktop`（菜单里显示为「相机录制（打开即开始录制，按 q 结束）」，
+`Terminal=true`，所以启动时会开一个终端窗口显示录制进度，也可在那里 Ctrl-C 停止）。删除软链即卸载。
 
 ## 使用
 
@@ -70,8 +71,9 @@ OUT_DIR=~/桌面 camera-record      # 换个保存目录
 camera-record --selftest          # 检查 ffmpeg 后端 / 设备 / 麦克风
 ```
 
-**结束录制**：在预览窗口上按 `q` 或 `Esc`，或直接关掉预览窗口 —— ffmpeg 正常退出即文件已写好
-（mkv 可以随写随用，异常断电也不会丢已成簇的数据）。
+**结束录制**：在预览窗口上按 `q` 或 `Esc`，或关掉预览窗口；从菜单启动时终端窗口也在，`Ctrl-C` 同样可以。
+停止时 ffmpeg 会正常收尾（实测退出码 255、但 MKV 已完整可用），脚本把它识别为「已保存」而不是失败，
+不会重新拉起进程。mkv 可以随写随用，异常断电也不会丢已成簇的数据。
 
 产物：`~/Videos/Camera/2026-09-29_23-10-05.mkv`，`ffprobe` 显示 `codec_name=mjpeg`（原始 MKJP）+ `aac`。
 
@@ -90,14 +92,20 @@ camera-record --selftest          # 检查 ffmpeg 后端 / 设备 / 麦克风
 
 ## 常见问题
 
+**菜单里的「相机录制」和「guvcview」是什么区别？** —— 「相机录制」就是本项目：它一启动就开始录，
+没有按钮，结束方式是按 `q` / 关预览窗 / 在终端里 Ctrl-C；适合“我只想把这一段录下来”。
+想要「打开就能看见自己、有录制按钮」的图形相机，用 guvcview（菜单里的 `guvcview`，或命令行 `guvcview`），
+它也可以快捷键 `v` 开始/停止录制。两者抢同一个摄像头，**不能同时开**。
+
 **`Device or resource busy`** —— V4L2 设备独占，别的程序（浏览器、会议软件、另一个录制进程）占着摄像头。
 ```bash
 fuser -k /dev/video0        # 杀掉占用者
 ```
-注意：杀掉一个 ffmpeg 后，本脚本的"降级重试"会再拉起一个来抢设备；要停就停整个脚本
-（`pkill -f 'camera[-]record'` —— 注意 `pkill -x camera-record` 匹配不到，脚本的进程名是 `bash`），
-或直接 `fuser -k /dev/video0`。脚本启动前会先检查设备是否被占用，被占用时直接退出并打印占用者 PID，
-不再徒劳地重试四种方案。
+注意：本脚本的"降级重试"只在**真的失败**时才换后端；按 q / 关窗 / Ctrl-C 属于主动停止，
+已录到的文件会被保留（早期版本会误判成失败：删文件 + 重新拉起 ffmpeg，看起来就像"摄像头又被占用了"）。
+要硬停整个脚本：`pkill -f 'camera[-]record/camera-record'`（注意 `pkill -x camera-record` 匹配不到，
+脚本的进程名是 `bash`），或直接 `fuser -k /dev/video0`。脚本启动前会先检查设备是否被占用，
+被占用时直接退出并打印占用者 PID，不再徒劳地重试四种方案。
 
 **预览窗口黑屏 / 不出现** —— 换后端：`PREVIEW=xv camera-record`；在 Xephyr、无 GPU 加速或远程桌面上
 `sdl` 常失败（`Error submitting a packet to the muxer: Operation not permitted`），换成 `xv` 即可。
@@ -106,10 +114,11 @@ fuser -k /dev/video0        # 杀掉占用者
 **预览窗口能看见画面但截图是黑的** —— 正常。`sdl` 预览走 GL/加速曲面，X 截图（`import`、`scrot`）抓不到；
 人眼看得到就行。要能截图的那种，用 `PREVIEW=xv`。
 
-**预览窗标题全是乱码/怪字符** —— 那是 `xv` 后端的窗口。ffmpeg 的 xv 输出设备只用 `XStoreName` 设 `WM_NAME`，
-而 `WM_NAME` 的类型是 `STRING`（标准里等价 ISO-8859-1），它又不设 `_NET_WM_NAME`；窗口管理器只能按 Latin-1
-去解释 UTF-8 的中文，于是“相机”两字变成 `ç›¸æœº` 这类乱码。脚本现在给 `xv` 用纯 ASCII 标题，
-`sdl` 后端仍用中文（SDL 会正确设置 UTF-8 的 `_NET_WM_NAME`）。这也是选 `sdl` 当默认后端的原因之一。
+**预览窗标题全是乱码/怪字符** —— 老版本的窗口。ffmpeg 的 `xv` 和 `sdl` 输出设备都只用 `XStoreName`
+设 `WM_NAME`（类型 `STRING`，标准里等价 ISO-8859-1），而且**都不设** `_NET_WM_NAME(UTF8_STRING)`
+（`xprop` 实测两者皆然）；窗口管理器只能按 Latin-1 逐字节解释 UTF-8 中文，于是“相机”变成 `ç›¸æœº`。
+所以脚本的窗口标题一律用纯 ASCII：`Camera Preview - press q or close window to stop`。
+（这也是旧版 `WM_NAME(STRING)` 与 `_NET_WM_NAME(UTF8_STRING)` 的区别：前者类型就说它不是 UTF-8。）
 
 **文件太大** —— MJPG 1080p30 ≈ 13MB/s ≈ 780MB/分钟，这是摄像头原始数据量，不是脚本的锅。
 要更小：`camera-record /dev/video2`（720p15 ≈ 1.1MB/s），或自己接一段 `-c:v h264_vaapi` 重编码
