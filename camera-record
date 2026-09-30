@@ -1,0 +1,89 @@
+#!/usr/bin/env bash
+#
+# camera-record — 摄像头无损录制 + 实时预览（Linux / V4L2 / FFmpeg）
+#
+# 一个 ffmpeg 进程同时做两件事：
+#   1) -map 0:v -c:v copy  把摄像头的 MJPEG 帧原样写进 .mkv —— 零重编码、零画质损失、几乎不耗 CPU
+#   2) -map 0:v -vf format=yuv420p -f sdl  同一路视频送进预览窗口（sdl 不可用时自动退回 xv / 关闭预览）
+#
+# 用法:
+#   camera-record                  # /dev/video0：1920x1080@30 + 麦克风
+#   camera-record /dev/video2      # 红外摄像头：自动降到 1280x720@15
+#   NO_AUDIO=1 camera-record       # 只录画面
+#   PREVIEW=xv camera-record       # 预览后端：sdl(默认) / xv / none
+#   OUT_DIR=~/桌面 camera-record   # 保存目录（默认 ~/Videos/Camera）
+#   camera-record --selftest       # 自检环境（ffmpeg 后端 / 设备 / 麦克风）
+#
+# 结束录制：在预览窗口上按 q 或 Esc，或直接关闭预览窗口。
+#
+set -u
+
+if [ "${1:-}" = "--selftest" ]; then
+  fver=$(ffmpeg -version 2>/dev/null | head -1)
+  [ -n "$fver" ] || { echo "缺少 ffmpeg"; exit 1; }
+  echo "ffmpeg : $fver"
+  devs=$(ffmpeg -hide_banner -devices 2>/dev/null)
+  printf '%s\n' "$devs" | grep -q v4l2 && echo "输入   : v4l2 ✓" || { echo "输入   : 缺 v4l2 支持 ✗"; exit 1; }
+  printf '%s\n' "$devs" | grep -q sdl  && echo "预览   : sdl ✓" || echo "预览   : 无 sdl（将用 xv）"
+  printf '%s\n' "$devs" | grep -q 'E xv' && echo "预览   : xv ✓"
+  ls /dev/video* >/dev/null 2>&1 || { echo "设备   : 没有 /dev/video* ✗"; exit 1; }
+  echo "设备   : $(ls /dev/video* | tr '\n' ' ')"
+  if pactl get-default-source >/dev/null 2>&1; then
+    echo "麦克风 : $(pactl get-default-source)"
+  else
+    echo "麦克风 : 无 pulse 源（将只录画面）"
+  fi
+  echo "OK — 直接运行 camera-record 开始录制"
+  exit 0
+fi
+
+dev="${1:-/dev/video0}"
+[ -c "$dev" ] || { echo "找不到摄像头设备 $dev" >&2; exit 1; }
+case "${dev##*/}" in
+  video2|video3) size=1280x720;  fps=15 ;;   # 红外摄像头（Windows Hello IR）
+  *)             size=1920x1080; fps=30 ;;
+esac
+
+out_dir="${OUT_DIR:-$HOME/Videos/Camera}"
+mkdir -p "$out_dir"
+out="$out_dir/$(date +%F_%H-%M-%S).mkv"
+title="相机预览 — 按 q 或关窗口结束录制"
+
+have_mic=0
+if [ "${NO_AUDIO:-0}" != 1 ] && pactl get-default-source >/dev/null 2>&1; then have_mic=1; fi
+
+# $1 = 录声音(0/1)   $2 = 预览后端(sdl/xv/none)
+rec() {
+  local a=() o=(-map 0:v -c:v copy) p=()
+  [ "$1" = 1 ] && {
+    a=(-thread_queue_size 512 -f pulse -i default)
+    o+=(-map 1:a -c:a aac -b:a 160k -af aresample=async=1:first_pts=0)
+  }
+  case "$2" in
+    none) : ;;
+    xv)   p=(-map 0:v -vf format=yuv420p -f xv -window_title "$title" "${DISPLAY:-:0}") ;;
+    *)    p=(-map 0:v -vf format=yuv420p -f sdl "$title") ;;
+  esac
+  ffmpeg -hide_banner -loglevel warning -stats \
+    -thread_queue_size 512 -f v4l2 -input_format mjpeg -video_size "$size" -framerate "$fps" -i "$dev" \
+    "${a[@]}" "${o[@]}" "$out" "${p[@]}"
+}
+
+try() {
+  rec "$1" "$2"
+  local rc=$?
+  if [ $rc -eq 0 ]; then
+    echo "已保存: $out"
+    exit 0
+  fi
+  rm -f "$out"
+  echo "失败(rc=$rc，声音=$1 预览=$2)，换方案重试…" >&2
+}
+
+pv="${PREVIEW:-sdl}"
+[ "$have_mic" = 1 ] && try 1 "$pv"
+try 0 "$pv"
+[ "$pv" = sdl ] && try 0 xv
+try 0 none
+echo "摄像头 $dev 录不了（可能被别的程序占用？试试: fuser -k $dev）" >&2
+exit 1

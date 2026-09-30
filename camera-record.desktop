@@ -1,0 +1,11 @@
+[Desktop Entry]
+Type=Application
+Name=相机录制
+Name[en]=Camera Record
+Comment=摄像头无损录制（MJPEG 直通）+ 实时预览
+Exec=@EXEC@
+Icon=camera-web
+Terminal=false
+Categories=AudioVideo;Video;Recorder;
+Keywords=camera;webcam;video;record;摄像头;录制;
+StartupNotify=true
