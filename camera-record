@@ -53,6 +53,9 @@ out_dir="${OUT_DIR:-$HOME/Videos/Camera}"
 mkdir -p "$out_dir"
 out="$out_dir/$(date +%F_%H-%M-%S).mkv"
 title="相机预览 — 按 q 或关窗口结束录制"
+# xv 后端只用 XStoreName 设 WM_NAME(STRING=ISO-8859-1)，中文会被窗口管理器按 Latin-1 解释而乱码；
+# 所以 xv 用纯 ASCII 标题（sdl 会正确设 _NET_WM_NAME，中文没问题）。
+title_ascii="Camera Preview - press q or close window to stop"
 
 have_mic=0
 if [ "${NO_AUDIO:-0}" != 1 ] && pactl get-default-source >/dev/null 2>&1; then have_mic=1; fi
@@ -66,7 +69,7 @@ rec() {
   }
   case "$2" in
     none) : ;;
-    xv)   p=(-map 0:v -vf format=yuv420p -f xv -window_title "$title" "${DISPLAY:-:0}") ;;
+    xv)   p=(-map 0:v -vf format=yuv420p -f xv -window_title "$title_ascii" "${DISPLAY:-:0}") ;;
     *)    p=(-map 0:v -vf format=yuv420p -f sdl "$title") ;;
   esac
   ffmpeg -hide_banner -loglevel warning -stats \

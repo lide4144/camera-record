@@ -106,6 +106,11 @@ fuser -k /dev/video0        # 杀掉占用者
 **预览窗口能看见画面但截图是黑的** —— 正常。`sdl` 预览走 GL/加速曲面，X 截图（`import`、`scrot`）抓不到；
 人眼看得到就行。要能截图的那种，用 `PREVIEW=xv`。
 
+**预览窗标题全是乱码/怪字符** —— 那是 `xv` 后端的窗口。ffmpeg 的 xv 输出设备只用 `XStoreName` 设 `WM_NAME`，
+而 `WM_NAME` 的类型是 `STRING`（标准里等价 ISO-8859-1），它又不设 `_NET_WM_NAME`；窗口管理器只能按 Latin-1
+去解释 UTF-8 的中文，于是“相机”两字变成 `ç›¸æœº` 这类乱码。脚本现在给 `xv` 用纯 ASCII 标题，
+`sdl` 后端仍用中文（SDL 会正确设置 UTF-8 的 `_NET_WM_NAME`）。这也是选 `sdl` 当默认后端的原因之一。
+
 **文件太大** —— MJPG 1080p30 ≈ 13MB/s ≈ 780MB/分钟，这是摄像头原始数据量，不是脚本的锅。
 要更小：`camera-record /dev/video2`（720p15 ≈ 1.1MB/s），或自己接一段 `-c:v h264_vaapi` 重编码
 （本机可用的 VAAPI 编码器：`h264_vaapi / hevc_vaapi / av1_vaapi / mjpeg_vaapi`）。
