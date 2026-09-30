@@ -95,7 +95,9 @@ camera-record --selftest          # 检查 ffmpeg 后端 / 设备 / 麦克风
 fuser -k /dev/video0        # 杀掉占用者
 ```
 注意：杀掉一个 ffmpeg 后，本脚本的"降级重试"会再拉起一个来抢设备；要停就停整个脚本
-（`pkill -x camera-record`）或直接 `fuser -k /dev/video0`。
+（`pkill -f 'camera[-]record'` —— 注意 `pkill -x camera-record` 匹配不到，脚本的进程名是 `bash`），
+或直接 `fuser -k /dev/video0`。脚本启动前会先检查设备是否被占用，被占用时直接退出并打印占用者 PID，
+不再徒劳地重试四种方案。
 
 **预览窗口黑屏 / 不出现** —— 换后端：`PREVIEW=xv camera-record`；在 Xephyr、无 GPU 加速或远程桌面上
 `sdl` 常失败（`Error submitting a packet to the muxer: Operation not permitted`），换成 `xv` 即可。

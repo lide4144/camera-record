@@ -39,6 +39,11 @@ fi
 
 dev="${1:-/dev/video0}"
 [ -c "$dev" ] || { echo "找不到摄像头设备 $dev" >&2; exit 1; }
+if command -v fuser >/dev/null 2>&1 && fuser -s "$dev" 2>/dev/null; then
+  echo "摄像头 $dev 正被占用（占用进程: $(fuser "$dev" 2>/dev/null | tr -s ' ' | sed 's/^ //')）" >&2
+  echo "先结束占用它的程序，或执行: fuser -k $dev" >&2
+  exit 1
+fi
 case "${dev##*/}" in
   video2|video3) size=1280x720;  fps=15 ;;   # 红外摄像头（Windows Hello IR）
   *)             size=1920x1080; fps=30 ;;
